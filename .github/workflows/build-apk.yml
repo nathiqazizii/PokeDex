@@ -1,0 +1,63 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pastikan secret Supabase sudah diisi
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_PUBLISHABLE_KEY" ]; then
+            echo "::error::Isi secret SUPABASE_URL dan SUPABASE_PUBLISHABLE_KEY di Settings > Secrets and variables > Actions"
+            exit 1
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.27.4"
+          channel: stable
+          cache: true
+
+      - name: Buat platform Android
+        run: flutter create --platforms=android --project-name pokedex --org id.ac.upnyk .
+
+      - name: Tambal konfigurasi Android (izin dan desugaring)
+        run: python3 tool/patch_android.py
+
+      - name: Hapus tes bawaan (template tidak cocok dengan aplikasi ini)
+        run: rm -rf test
+
+      - name: Install dependensi
+        run: flutter pub get
+
+      - name: Analisis kode
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Build APK release
+        run: |
+          flutter build apk --release \
+            --dart-define=SUPABASE_URL="$SUPABASE_URL" \
+            --dart-define=SUPABASE_PUBLISHABLE_KEY="$SUPABASE_PUBLISHABLE_KEY"
+
+      - name: Unggah APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: pokedex-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
